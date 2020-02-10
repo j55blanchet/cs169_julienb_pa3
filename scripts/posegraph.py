@@ -12,8 +12,6 @@
 import g2o
 import numpy as np
 
-from geometry_msgs.msg import Pose
-
 class PoseGraph():
     def __init__(self):
         self.optimizer = g2o.SparseOptimizer()

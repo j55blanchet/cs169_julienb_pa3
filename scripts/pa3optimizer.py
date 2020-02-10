@@ -7,12 +7,11 @@
 
     A localization package that constucts a pose-graph from suscribed ros topics
     and then performs bundle optimization on the graph. Designed specifically for a 1D
-    localization scenario and only considers a single landmark - the front-facing scan
+    localization scenario and only considers a single landmark - the front-facing scan.
 """
 
 import sys
 import rospy
-import g2o
 import numpy as np
 
 from geometry_msgs.msg import PoseStamped
@@ -20,12 +19,15 @@ from sensor_msgs.msg import LaserScan
 
 from posegraph import PoseGraph
 
-WALL_VERTEX_ID = 1
-RATE_HZ = 10
+# Interesting constants - feel free to try things!
 WAIT_TIME_BEFORE_OPTIMIZE = rospy.Duration(secs=5)
-
 WHEEL_ODOMETRY_INFORMATION = 1 / 0.00228 # Corresponding to a std deviation of 2.28 mm over 1m of travel
 SCAN_STDDEV_PERCENTAGE = 0.01
+LANDMARK_FACTORIZATION_QUOTIENT = 10 # 1 / n poses will be connected with landmark edges
+
+# No reason to modify these constants
+WALL_VERTEX_ID = 1
+RATE_HZ = 10
 
 class PA3Optimizer:
 
@@ -38,11 +40,16 @@ class PA3Optimizer:
         self.pose_sub = rospy.Subscriber("pose", PoseStamped, self.on_pose, queue_size=1)
         self.scan_sub = rospy.Subscriber("scan", LaserScan, self.on_scan, queue_size=1)
 
+        self.factorize_landmark_edges = rospy.get_param("~factorize_landmark_edges", default=True)
+
         self.vertex_seq = WALL_VERTEX_ID # landmark has id 1. The pose vertices will start with id of 2
         self.prev_pose = None
+        self.last_msg_time = rospy.Time.now()
+
         self.has_wall_vertex = False
         self.prev_wallconstraint_vertexid = None
-        self.last_msg_time = rospy.Time.now()
+        self.landmark_key_vertices = []
+        self.landmark_vertex_measurements = []
     
     def on_pose(self, posemsg):
         """Handles a pose message by adding a vertex (& odometry edge) to the graph optimizer
@@ -88,34 +95,69 @@ class PA3Optimizer:
             return
 
         # Note: for the robot, the first element in the laser scan message faces forward
-        forward_range = scanmsg.ranges[0]
+        x_dist = scanmsg.ranges[0]
 
-        if np.isinf(forward_range):
+        if np.isinf(x_dist):
             rospy.logwarn("Ignoring scan b/c of infinite measurement")
             return
 
-        x_std_dev = forward_range * SCAN_STDDEV_PERCENTAGE
+        x_std_dev = x_dist * SCAN_STDDEV_PERCENTAGE
         x_information = 1.0 / x_std_dev
-        x_estimate = self.prev_pose.position.x + forward_range 
+        x_pos_estimate = self.prev_pose.position.x + x_dist 
+        
+        if self.factorize_landmark_edges:
+            self.addscan_factored(x_pos_estimate, x_information, x_dist)
+        else:
+            self.addscan_nonfactored(x_pos_estimate, x_information, x_dist)
+        
 
+    def addscan_nonfactored(self, x_pos_estimate, x_information, x_dist):
+        
         if not self.has_wall_vertex:
-            self.posegraph.add_landmark(0, x_estimate)
+            self.posegraph.add_landmark(WALL_VERTEX_ID, x_pos_estimate)
             self.has_wall_vertex = True
-            rospy.loginfo("Created landmark node at estimated position {0: .4f}".format(x_estimate))
+            rospy.loginfo("Created landmark node at estimated position {0: .4f}".format(x_pos_estimate))
             
         info_matrix = np.identity(2)
         info_matrix[0][0] = x_information
 
-        self.posegraph.add_landmark_edge( \
-            vertex_id=self.vertex_seq, \
-                landmark_id=WALL_VERTEX_ID, \
-                dx=forward_range, \
-                information=info_matrix)
+        self.posegraph.add_landmark_edge(   \
+            vertex_id=self.vertex_seq,      \
+            landmark_id=WALL_VERTEX_ID,     \
+            dx=x_dist,                      \
+            information=info_matrix)
 
         self.prev_wallconstraint_vertexid = self.vertex_seq
 
         self.last_msg_time = rospy.Time.now()
-        rospy.loginfo("    {0} to WALL: range {1: .4f}   est pos:{2: .4f}".format(self.vertex_seq, forward_range, x_estimate))
+        rospy.loginfo("    {0} to WALL: range {1: .4f}   est pos:{2: .4f}".format(self.vertex_seq, x_dist, x_pos_estimate))
+
+
+    def addscan_factored(self, x_pos_estimate, x_information, x_dist):
+
+        if self.prev_wallconstraint_vertexid is not None and \
+           self.vertex_seq - self.prev_wallconstraint_vertexid < LANDMARK_FACTORIZATION_QUOTIENT:
+            # This isn't a key vertex (one that will have landmark constraints added to it)
+            return
+            
+        # Add an edge between current vertex and all existing key vertices
+        for v, v_x_dist in zip(self.landmark_key_vertices, self.landmark_vertex_measurements):
+           
+            dx = v_x_dist - x_dist
+
+            info_matrix = np.identity(3)
+            info_matrix[0][0] = x_information # TODO: this should perhaps be an average of information value of current and previous scan
+
+            # Add an edge from the previous pose to the current one)
+            self.posegraph.add_edge(fromVertex=v, 
+                                    toVertex=self.vertex_seq, 
+                                    dx=dx,
+                                    information=info_matrix)
+
+        rospy.loginfo("LANDMARK-FACTORIZED: #{0: 2d} landmark_x_dist:{1: .4f}".format(self.vertex_seq, x_dist))    
+        self.landmark_vertex_measurements.append(x_dist)
+        self.landmark_key_vertices.append(self.vertex_seq)
+        self.prev_wallconstraint_vertexid = self.vertex_seq
 
     def spin(self):
 
