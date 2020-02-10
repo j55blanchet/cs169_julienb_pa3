@@ -10,7 +10,7 @@ Julien Blanchet - CS169 - 2/9/2020
 
 ### Design
 
-Building off [a g2o python example](https://github.com/uoip/g2opy#pose-graph-optimization), I decided to separate my code into a graph-builder class that wraps the g2o library (`posegraph.py`) and a main file (`pa3optimizer.py`) that interacts with ROS to retrieve messages. These are both independant - `posegraph.py` doesn't depend on ROS and `pa3optimizer.py` doesm't depend on g2o.
+Building off [a g2o python example](https://github.com/uoip/g2opy#pose-graph-optimization), I decided to separate my code into a graph-builder class that wraps the g2o library (`posegraph.py`) and a main file (`pa3optimizer.py`) that interacts with ROS to retrieve messages. These are both independent - `posegraph.py` doesn't depend on ROS and `pa3optimizer.py` doesn't depend on g2o.
 
 For saving the `.g2o` files, I elected to use the builtin `.save()` method of the `g2o.SparseOptimizer` class. I didn't see a need to reinvent the wheel here.
 
