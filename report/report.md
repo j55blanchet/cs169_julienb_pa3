@@ -23,11 +23,29 @@ To determine a covariance parameter for the wheel odometry, I referred to [Husar
 
 This was sufficient for the purposes of this assignment, but I do wonder which informaiton matrix value *should* be higher. If we "trust" the LIDAR sensor more, then it should probably have a higher information matrix value than the wheel odometry measurement.
 
-
 ### Factorization Strategy
 While implementing factorization of landmark edges, I noticed that it wouldn't make sense to form a dense graph in which all robot pose nodes were connected to all other robot pose nodes, as the resulting problem size could grow quite quickly with E_landmark = θ(V!) where V is the number of nodes and E is number of landmark edges, no different than simply leaving the landmark node in the graph). I observed that visual odometry / loop closure constraints are more valuable between robot positions that are far apart, where more drift could have occured.
 
 Based off this observation, I decided on a factorization scheme that added visual-odometry edge constraints between every `n` nodes, configurable by the `LANDMARK_FACTORIZATION_QUOTIENT` constant (could easily be a rospy parameter if needed). This way, the number of landmark edges is only (V/n)!. This accounts for drift but substanially reduces problem size, and future versions could omit more edges.
+
+## Evaluation 
+
+### Optimizer Performance
+
+The optimizer I made seems to be functional, although I'm sure improvements could be made by adjusting the information matrix parameters. Examining table 1 below (also plotted in figure 1), you can see that the graph optimization did improve the distance estimate by about 6mm. From figure 2 you can see that the optimized graph follows the estimated pose graph quite closely. I attribute this to two factors: first, the information matrix parameters I put in are much higher for the odometry contraints than the visual constraints, meaning the scan measurements have less corrective influence on the outcome. Second, this was quite a short trial and there wasn't that much drift. In a longer, more difficult trial I would expect the optimized trajectory to show a much more distinct improvement over the pose estimates acquired from raw wheel odometry.
+
+|  | Raw | Optimized | Ground Truth |
+| --- | --- | ---       |      --- |
+| Distance Traveled | 1.05936 | 1.06605 | 1.1 |
+| Start | 2.70562 | 2.69591 | 0.9 |
+| End | 3.76498 | 3.76196 | 2 |
+*Table 1: Estimation error - graph optimization with factorized landmark constraints*
+
+`<INSERT VISUALIZATION HERE>`
+
+
+`<INSERT SECOND VISUALIZATION HERE>`
+
 
 ### Investigating Divergance
 
@@ -44,10 +62,6 @@ During investigation of the causes of divergance, I created a toy example, which
 | Changing node types affects outcome in subtle and ultimately unimportant ways. (Same point of conversion but different number of iterations and floating point rounding artifacts) | Optimization before and after changing type of the landmark (`VERTEX_XY` to `VERTEX_SE2`) and corresponding edges (`EDGE_SE2_XY` to `EDGE_SE2`)|
 | The values of the information matrices only matter in relation to one another. Specifically, the relative values affect the conversion points. (However, increasing the absolute values does increase number of iterations of the solver) | Putting 100 for all edges in the information matrices instead of 1|
 | The relative "weight" imparted by infomation matrix values is not linear in nature. | case 1 having odom edge info values of 1 and landmark of 2 versus case 2 with odom edges of 2 and landmark of 4.|
-
-## Evaluation 
-
-TODO
 
 ## Allocation of Effort
 All programming work was done by myself. I used the answers posted in Piazza to help my work, and I used Mingi's bag file as the data source.
