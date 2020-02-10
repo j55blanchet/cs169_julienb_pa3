@@ -1,9 +1,13 @@
 <launch>
     <arg name="bagfile" default="mingi-record.bag"/>
+    <arg name="filename_preoptimization" default="graph-before-optimization.g2o" />
+    <arg name="filename_postoptimization" default="graph-after-optimization.g2o" />
 
-    <node pkg="rosbag" type="play" name="rosbag_playback_node" args="$(find julienb_graphoptimization)/bags/$(arg bagfile)">  
+    <node pkg="rosbag" type="play" name="rosbag_playback_node" args="$(find julienb_graphoptimization)/data/$(arg bagfile)">  
     </node>
 
     <node pkg="julienb_graphoptimization" type="pa3optimizer.py" name="julienb_optimizer" output="screen">
+        <param name="preoptimization_output" value="$(find julienb_graphoptimization)/data/$(arg filename_preoptimization)" />
+        <param name="postoptimization_output" value="$(find julienb_graphoptimization)/data/$(arg filename_postoptimization)" />
     </node>
 </launch>

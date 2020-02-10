@@ -89,21 +89,29 @@ class PA3Optimizer:
 
     def spin(self):
 
-        while not rospy.is_shutdown() and   
-              self.vertex_seq > WALL_VERTEX_ID and   # ensure we have at least 1 vertex (e.g. that the rosbag has started playing)
-                rospy.Time.now() - self.last_msg_time < WAIT_TIME_BEFORE_OPTIMIZE:
+        # Ensure we have at least 1 vertex (e.g. that the rosbag has started playing), 
+        #   and then wait a bit after the last message before starting the optimization routine
+        while not rospy.is_shutdown() and   \
+              (self.vertex_seq == WALL_VERTEX_ID or rospy.Time.now() - self.last_msg_time < WAIT_TIME_BEFORE_OPTIMIZE):
 
             self.rate.sleep()
 
-        rospy.loginfo("No new messages in {0}. Optimizing now".format(WAIT_TIME_BEFORE_OPTIMIZE))
+        rospy.loginfo("No new messages in {0}. Moving on".format(WAIT_TIME_BEFORE_OPTIMIZE))
+        self.optimize()
+
+    def optimize(self):
         self.pose_sub.unregister()
         self.scan_sub.unregister()
+
+        preop_file = rospy.get_param("~preoptimization_output")
+        rospy.loginfo("Graph construction complete. Printing graph to {0}".format(preop_file))
+        self.posegraph.save(preop_file)
+
         self.posegraph.optimize()
-        self.print_results()
 
-    def print_results(self):
-        rospy.loginfo("Printing results...")
-
+        postop_file = rospy.get_param("~postoptimization_output")
+        rospy.loginfo("Optimization complete. Printing graph to {0}".format(postop_file))
+        self.posegraph.save(postop_file)
 
 if __name__ == "__main__":
 

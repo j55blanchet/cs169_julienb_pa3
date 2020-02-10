@@ -71,3 +71,6 @@ class PoseGraph():
 
     def get_pose(self, id):
         return self.optimizer.vertex(id).estimate()
+
+    def save(self, filepath):
+        self.optimizer.save(filepath)
