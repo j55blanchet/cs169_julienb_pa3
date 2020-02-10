@@ -24,6 +24,9 @@ WALL_VERTEX_ID = 1
 RATE_HZ = 10
 WAIT_TIME_BEFORE_OPTIMIZE = rospy.Duration(secs=5)
 
+WHEEL_ODOMETRY_INFORMATION = 1 / 0.00228 # Corresponding to a std deviation of 2.28 mm over 1m of travel
+SCAN_STDDEV_PERCENTAGE = 0.01
+
 class PA3Optimizer:
 
     def __init__(self):
@@ -38,6 +41,7 @@ class PA3Optimizer:
         self.vertex_seq = WALL_VERTEX_ID # landmark has id 1. The pose vertices will start with id of 2
         self.prev_pose = None
         self.has_wall_vertex = False
+        self.prev_wallconstraint_vertexid = None
         self.last_msg_time = rospy.Time.now()
     
     def on_pose(self, posemsg):
@@ -48,16 +52,20 @@ class PA3Optimizer:
         """
         self.vertex_seq += 1
         self.posegraph.add_vertex(self.vertex_seq, posemsg.pose.position.x)
-        rospy.loginfo("Added pose vertex {0} with estimated position {1}".format(self.vertex_seq, posemsg.pose.position.x))
+        rospy.loginfo("POSE #{0: 2d} @ {1: .3f}".format(self.vertex_seq, posemsg.pose.position.x))
         
         if self.prev_pose is not None:
-            dx = self.prev_pose.position.x - posemsg.pose.position.x
+            dx = posemsg.pose.position.x - self.prev_pose.position.x
+
+            info_matrix = np.identity(3)
+            info_matrix[0][0] = WHEEL_ODOMETRY_INFORMATION
 
             # Add an edge from the previous pose to the current one)
             self.posegraph.add_edge(fromVertex=self.vertex_seq - 1, 
                                     toVertex=self.vertex_seq, 
-                                    dx=dx)
-            rospy.loginfo("    => Added edge from previous pose to this one. dx:{0}".format(dx))
+                                    dx=dx,
+                                    information=info_matrix)
+            rospy.loginfo("    => dx: {0:0.3f}".format(dx))
 
         # TODO: Add to the output file
         self.prev_pose = posemsg.pose
@@ -71,21 +79,43 @@ class PA3Optimizer:
         """
         
         if self.prev_pose is None:
+            rospy.logwarn("Ignoring scan b/c of lack of prev pose")
             # Can't provide an estimate to the wall position until we get our first pose measurement.
+            return
+
+        if self.prev_wallconstraint_vertexid is self.vertex_seq:
+            rospy.logwarn("Ignoring scan b/c we already encoded a constraint to the current vertex")
             return
 
         # Note: for the robot, the first element in the laser scan message faces forward
         forward_range = scanmsg.ranges[0]
 
+        if np.isinf(forward_range):
+            rospy.logwarn("Ignoring scan b/c of infinite measurement")
+            return
+
+        x_std_dev = forward_range * SCAN_STDDEV_PERCENTAGE
+        x_information = 1.0 / x_std_dev
+        x_estimate = self.prev_pose.position.x + forward_range 
+
         if not self.has_wall_vertex:
-            x_estimate = self.prev_pose.position.x + forward_range 
             self.posegraph.add_landmark(0, x_estimate)
             self.has_wall_vertex = True
-            rospy.loginfo("Created landmark node at estimated position {0}".format(x_estimate))
+            rospy.loginfo("Created landmark node at estimated position {0: .4f}".format(x_estimate))
             
-        self.posegraph.add_landmark_edge(self.vertex_seq, WALL_VERTEX_ID, forward_range)
+        info_matrix = np.identity(2)
+        info_matrix[0][0] = x_information
+
+        self.posegraph.add_landmark_edge( \
+            vertex_id=self.vertex_seq, \
+                landmark_id=WALL_VERTEX_ID, \
+                dx=forward_range, \
+                information=info_matrix)
+
+        self.prev_wallconstraint_vertexid = self.vertex_seq
+
         self.last_msg_time = rospy.Time.now()
-        rospy.loginfo("Added landmark edge from vertex {0} to wall at distance {1}".format(self.vertex_seq, forward_range))
+        rospy.loginfo("    {0} to WALL: range {1: .4f}   est pos:{2: .4f}".format(self.vertex_seq, forward_range, x_estimate))
 
     def spin(self):
 

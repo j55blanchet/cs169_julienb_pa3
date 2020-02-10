@@ -53,7 +53,7 @@ class PoseGraph():
 
         self.optimizer.add_vertex(landmark)
 
-    def add_landmark_edge(self, vertex_id, landmark_id, dx, information=np.identity(6)):
+    def add_landmark_edge(self, vertex_id, landmark_id, dx, information=np.identity(2)):
         
         edge = g2o.EdgeSE2PointXY()
 
@@ -63,6 +63,7 @@ class PoseGraph():
             edge.set_vertex(i, v)
 
         edge.set_measurement([dx, 0])
+        edge.set_information(information)
 
         self.optimizer.add_edge(edge)
 
